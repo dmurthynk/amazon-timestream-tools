@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -249,13 +250,31 @@ namespace TimestreamDotNetSample
             }
         }
 
+
+        public async Task MeasureQuery()
+        {
+            var queryString = $@" SELECT * FROM {Constants.DATABASE_NAME}.{Constants.TABLE_NAME} ORDER BY time DESC";
+            await RunQueryAsync(queryString);
+           
+        }
         private async Task RunQueryAsync(string queryString)
         {
             try
             {
                 QueryRequest queryRequest = new QueryRequest();
                 queryRequest.QueryString = queryString;
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
                 QueryResponse queryResponse = await queryClient.QueryAsync(queryRequest);
+                sw.Stop();
+                // Get the elapsed time as a TimeSpan value.
+                TimeSpan ts = sw.Elapsed;
+
+                // Format and display the TimeSpan value.
+                string elapsedTime = String.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                    ts.Hours, ts.Minutes, ts.Seconds,
+                    ts.Milliseconds);
+                Console.WriteLine("Query records RunTime " + elapsedTime);
                 while (true)
                 {
                     ParseQueryResult(queryResponse);

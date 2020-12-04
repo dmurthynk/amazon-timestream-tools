@@ -4,6 +4,8 @@ using Amazon.TimestreamQuery;
 using System.Threading.Tasks;
 using System;
 using CommandLine;
+using System.Diagnostics;
+using Amazon.Runtime;
 
 static class Constants
 {
@@ -37,57 +39,68 @@ namespace TimestreamDotNetSample
 
         static async Task MainAsync(string kmsKeyId, string csvFilePath)
         {
+
             // Recommended Timestream write client SDK configuration:
             // - Set SDK retry count to 10
             // - Set RequestTimeout to 20 seconds
             var writeClientConfig = new AmazonTimestreamWriteConfig
             {
                 Timeout = TimeSpan.FromSeconds(20),
-                MaxErrorRetry = 10
+                MaxErrorRetry = 10,
+                RegionEndpoint = RegionEndpoint.USEast2
             };
-            
-            var writeClient = new AmazonTimestreamWriteClient(writeClientConfig);
+
+            var queryClientConfig = new AmazonTimestreamQueryConfig
+            {
+                RegionEndpoint = RegionEndpoint.USEast2
+            };
+
+            var writeClient = new AmazonTimestreamWriteClient("awsAccessKeyId", "awsSecretAccessKey", writeClientConfig);
             var crudAndSimpleIngestionExample = new CrudAndSimpleIngestionExample(writeClient);
             var csvIngestionExample = new CsvIngestionExample(writeClient);
 
-            var queryClient = new AmazonTimestreamQueryClient();
+            var queryClient = new AmazonTimestreamQueryClient("awsAccessKeyId", "awsSecretAccessKey", queryClientConfig);
             var queryExample = new QueryExample(queryClient);
 
             await crudAndSimpleIngestionExample.CreateDatabase();
             await crudAndSimpleIngestionExample.DescribeDatabase();
             await crudAndSimpleIngestionExample.ListDatabases();
-            if (kmsKeyId != null) {
+            if (kmsKeyId != null)
+            {
                 await crudAndSimpleIngestionExample.UpdateDatabase(kmsKeyId);
             }
 
             await crudAndSimpleIngestionExample.CreateTable();
             await crudAndSimpleIngestionExample.DescribeTable();
             await crudAndSimpleIngestionExample.ListTables();
-            await crudAndSimpleIngestionExample.UpdateTable();
+            //  await crudAndSimpleIngestionExample.UpdateTable();
 
             // Simple records ingestion
+
             await crudAndSimpleIngestionExample.WriteRecords();
-            await crudAndSimpleIngestionExample.WriteRecordsWithCommonAttributes();
+
+            // await crudAndSimpleIngestionExample.WriteRecordsWithCommonAttributes();
 
             // upsert records
-            await crudAndSimpleIngestionExample.WriteRecordsWithUpsert();
+            // await crudAndSimpleIngestionExample.WriteRecordsWithUpsert();
 
-            if (csvFilePath != null) {
+            if (csvFilePath != null)
+            {
                 // Bulk record ingestion for bootstrapping a table with fresh data
                 await csvIngestionExample.BulkWriteRecords(csvFilePath);
             }
 
-            await queryExample.RunAllQueries();
+             await queryExample.MeasureQuery();
 
             // Try cancelling query
-            await queryExample.CancelQuery();
+            // await queryExample.CancelQuery();
 
             // Run query with multiple pages
-            await queryExample.RunQueryWithMultiplePages(20000);
+            //  await queryExample.RunQueryWithMultiplePages(20000);
 
             // Commenting out clean up.
-            // await crudAndSimpleIngestionExample.DeleteTable();
-            // await crudAndSimpleIngestionExample.DeleteDatabase();
+            await crudAndSimpleIngestionExample.DeleteTable();
+            await crudAndSimpleIngestionExample.DeleteDatabase();
         }
     }
 }

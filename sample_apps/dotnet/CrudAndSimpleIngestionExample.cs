@@ -3,7 +3,8 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using Amazon.TimestreamWrite;
 using Amazon.TimestreamWrite.Model;
-
+using System.Diagnostics;
+using System.Linq;
 namespace TimestreamDotNetSample
 {
     public class CrudAndSimpleIngestionExample
@@ -296,34 +297,37 @@ namespace TimestreamDotNetSample
             string currentTimeString = (now.ToUnixTimeMilliseconds()).ToString();
 
             List<Dimension> dimensions = new List<Dimension>{
-                new Dimension { Name = "region", Value = "us-east-1" },
-                new Dimension { Name = "az", Value = "az1" },
-                new Dimension { Name = "hostname", Value = "host1" }
+                new Dimension { Name = "device_id", Value = "d089b7e6-395b-4552-8354-0f4284c8a81f" }
+              //  new Dimension { Name = "hostname", Value = "host1" }
             };
 
-            var cpuUtilization = new Record
+            List<Record> records = new List<Record>
             {
-                Dimensions = dimensions,
-                MeasureName = "cpu_utilization",
-                MeasureValue = "13.6",
-                MeasureValueType = MeasureValueType.DOUBLE,
-                Time = currentTimeString
-            };
 
-            var memoryUtilization = new Record
+            };
+            for (int i = 0; i < 250; i++)
             {
-                Dimensions = dimensions,
-                MeasureName = "memory_utilization",
-                MeasureValue = "40",
-                MeasureValueType = MeasureValueType.DOUBLE,
-                Time = currentTimeString
-            };
+                var pressureState = new Record
+                {
+                    Dimensions = dimensions,
+                    MeasureName = "pstate" + i,
+                    MeasureValue = "normal" + i,
+                    MeasureValueType = MeasureValueType.VARCHAR,
+                    Time = currentTimeString
+                };
 
+                var batteryState = new Record
+                {
+                    Dimensions = dimensions,
+                    MeasureName = "bat2" + i,
+                    MeasureValue = "98" + i,
+                    MeasureValueType = MeasureValueType.DOUBLE,
+                    Time = currentTimeString
+                };
 
-            List<Record> records = new List<Record> {
-                cpuUtilization,
-                memoryUtilization
-            };
+                records.Add(pressureState);
+                records.Add(batteryState);
+            }
 
             try
             {
@@ -333,16 +337,48 @@ namespace TimestreamDotNetSample
                     TableName = Constants.TABLE_NAME,
                     Records = records
                 };
-                WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
-                Console.WriteLine($"Write records status code: {response.HttpStatusCode.ToString()}");
+                var taskList = new List<Task>();
+                for (int i = 0; i < 5; i++)
+                {
+                    var tsk = write100(records.Skip(i * 100).Take(100).ToList());
+                    taskList.Add(tsk);
+                }
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+                // WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
+                await Task.WhenAll(taskList);
+                sw.Stop();
+                // Get the elapsed time as a TimeSpan value.
+                TimeSpan ts = sw.Elapsed;
+
+                // Format and display the TimeSpan value.
+                string elapsedTime = String.Format("{0:00}:{1:00}:{2:00}.{3:00}",
+                    ts.Hours, ts.Minutes, ts.Seconds,
+                    ts.Milliseconds);
+                Console.WriteLine("Writing records RunTime " + elapsedTime);
+                //  Console.WriteLine($"Write records status code: {response.HttpStatusCode.ToString()}");
             }
-            catch (RejectedRecordsException e) {
+            catch (RejectedRecordsException e)
+            {
                 PrintRejectedRecordsException(e);
             }
             catch (Exception e)
             {
                 Console.WriteLine("Write records failure:" + e.ToString());
             }
+        }
+
+
+        private async Task write100(List<Record> records)
+        {
+            var writeRecordsRequest = new WriteRecordsRequest
+            {
+                DatabaseName = Constants.DATABASE_NAME,
+                TableName = Constants.TABLE_NAME,
+                Records = records
+            };
+            WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
+            Console.WriteLine($"Write records status code: {response.HttpStatusCode.ToString()}");
         }
 
         public async Task WriteRecordsWithCommonAttributes()
@@ -394,7 +430,8 @@ namespace TimestreamDotNetSample
                 WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
                 Console.WriteLine($"Write records status code: {response.HttpStatusCode.ToString()}");
             }
-            catch (RejectedRecordsException e) {
+            catch (RejectedRecordsException e)
+            {
                 PrintRejectedRecordsException(e);
             }
             catch (Exception e)
@@ -404,153 +441,159 @@ namespace TimestreamDotNetSample
         }
 
         public async Task WriteRecordsWithUpsert()
-            {
-                Console.WriteLine("Writing records with upsert");
+        {
+            Console.WriteLine("Writing records with upsert");
 
-                DateTimeOffset now = DateTimeOffset.UtcNow;
-                string currentTimeString = (now.ToUnixTimeMilliseconds()).ToString();
-                // To achieve upsert (last writer wins) semantic, one example is to use current time as the version if you are writing directly from the data source
-                long version = now.ToUnixTimeMilliseconds();
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            string currentTimeString = (now.ToUnixTimeMilliseconds()).ToString();
+            // To achieve upsert (last writer wins) semantic, one example is to use current time as the version if you are writing directly from the data source
+            long version = now.ToUnixTimeMilliseconds();
 
-                List<Dimension> dimensions = new List<Dimension>{
+            List<Dimension> dimensions = new List<Dimension>{
                     new Dimension { Name = "region", Value = "us-east-1" },
                     new Dimension { Name = "az", Value = "az1" },
                     new Dimension { Name = "hostname", Value = "host1" }
                 };
 
-                var commonAttributes = new Record
+            var commonAttributes = new Record
+            {
+                Dimensions = dimensions,
+                MeasureValueType = MeasureValueType.DOUBLE,
+                Time = currentTimeString,
+                Version = version
+            };
+
+            var cpuUtilization = new Record
+            {
+                MeasureName = "cpu_utilization",
+                MeasureValue = "13.6"
+            };
+
+            var memoryUtilization = new Record
+            {
+                MeasureName = "memory_utilization",
+                MeasureValue = "40"
+            };
+
+
+            List<Record> records = new List<Record>();
+            records.Add(cpuUtilization);
+            records.Add(memoryUtilization);
+
+            // write records for first time
+            try
+            {
+                var writeRecordsRequest = new WriteRecordsRequest
                 {
-                    Dimensions = dimensions,
-                    MeasureValueType = MeasureValueType.DOUBLE,
-                    Time = currentTimeString,
-                    Version = version
+                    DatabaseName = Constants.DATABASE_NAME,
+                    TableName = Constants.TABLE_NAME,
+                    Records = records,
+                    CommonAttributes = commonAttributes
                 };
+                WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
+                Console.WriteLine($"WriteRecords Status for first time: {response.HttpStatusCode.ToString()}");
+            }
+            catch (RejectedRecordsException e)
+            {
+                PrintRejectedRecordsException(e);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Write records failure:" + e.ToString());
+            }
 
-                var cpuUtilization = new Record
+            // Successfully retry same writeRecordsRequest with same records and versions, because writeRecords API is idempotent.
+            try
+            {
+                var writeRecordsRequest = new WriteRecordsRequest
                 {
-                    MeasureName = "cpu_utilization",
-                    MeasureValue = "13.6"
+                    DatabaseName = Constants.DATABASE_NAME,
+                    TableName = Constants.TABLE_NAME,
+                    Records = records,
+                    CommonAttributes = commonAttributes
                 };
+                WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
+                Console.WriteLine($"WriteRecords Status for retry: {response.HttpStatusCode.ToString()}");
+            }
+            catch (RejectedRecordsException e)
+            {
+                PrintRejectedRecordsException(e);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Write records failure:" + e.ToString());
+            }
 
-                var memoryUtilization = new Record
-                {
-                    MeasureName = "memory_utilization",
-                    MeasureValue = "40"
-                };
+            // upsert with lower version, this would fail because a higher version is required to update the measure value.
+            version--;
+            Type recordType = typeof(Record);
+            recordType.GetProperty("Version").SetValue(commonAttributes, version);
+            recordType.GetProperty("MeasureValue").SetValue(cpuUtilization, "14.6");
+            recordType.GetProperty("MeasureValue").SetValue(memoryUtilization, "50");
 
-
-                List<Record> records = new List<Record>();
-                records.Add(cpuUtilization);
-                records.Add(memoryUtilization);
-
-                // write records for first time
-                try
-                {
-                    var writeRecordsRequest = new WriteRecordsRequest
-                    {
-                        DatabaseName = Constants.DATABASE_NAME,
-                        TableName = Constants.TABLE_NAME,
-                        Records = records,
-                        CommonAttributes = commonAttributes
-                    };
-                    WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
-                    Console.WriteLine($"WriteRecords Status for first time: {response.HttpStatusCode.ToString()}");
-                }
-                catch (RejectedRecordsException e) {
-                    PrintRejectedRecordsException(e);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine("Write records failure:" + e.ToString());
-                }
-
-                // Successfully retry same writeRecordsRequest with same records and versions, because writeRecords API is idempotent.
-                try
-                {
-                    var writeRecordsRequest = new WriteRecordsRequest
-                    {
-                        DatabaseName = Constants.DATABASE_NAME,
-                        TableName = Constants.TABLE_NAME,
-                        Records = records,
-                        CommonAttributes = commonAttributes
-                    };
-                    WriteRecordsResponse response = await writeClient.WriteRecordsAsync(writeRecordsRequest);
-                    Console.WriteLine($"WriteRecords Status for retry: {response.HttpStatusCode.ToString()}");
-                }
-                catch (RejectedRecordsException e) {
-                    PrintRejectedRecordsException(e);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine("Write records failure:" + e.ToString());
-                }
-
-                // upsert with lower version, this would fail because a higher version is required to update the measure value.
-                version--;
-                Type recordType = typeof(Record);
-                recordType.GetProperty("Version").SetValue(commonAttributes, version);
-                recordType.GetProperty("MeasureValue").SetValue(cpuUtilization, "14.6");
-                recordType.GetProperty("MeasureValue").SetValue(memoryUtilization, "50");
-
-                List<Record> upsertedRecords = new List<Record> {
+            List<Record> upsertedRecords = new List<Record> {
                     cpuUtilization,
                     memoryUtilization
                 };
 
-                try
+            try
+            {
+                var writeRecordsUpsertRequest = new WriteRecordsRequest
                 {
-                    var writeRecordsUpsertRequest = new WriteRecordsRequest
-                    {
-                        DatabaseName = Constants.DATABASE_NAME,
-                        TableName = Constants.TABLE_NAME,
-                        Records = upsertedRecords,
-                        CommonAttributes = commonAttributes
-                    };
-                    WriteRecordsResponse upsertResponse = await writeClient.WriteRecordsAsync(writeRecordsUpsertRequest);
-                    Console.WriteLine($"WriteRecords Status for upsert with lower version: {upsertResponse.HttpStatusCode.ToString()}");
-                }
-                catch (RejectedRecordsException e) {
-                    Console.WriteLine($"WriteRecords Status for upsert with lower version.");
-                    PrintRejectedRecordsException(e);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine("Write records failure:" + e.ToString());
-                }
-
-                // upsert with higher version as new data is generated
-                now = DateTimeOffset.UtcNow;
-                version = now.ToUnixTimeMilliseconds();
-                recordType.GetProperty("Version").SetValue(commonAttributes, version);
-
-                try
-                {
-                    var writeRecordsUpsertRequest = new WriteRecordsRequest
-                    {
-                        DatabaseName = Constants.DATABASE_NAME,
-                        TableName = Constants.TABLE_NAME,
-                        Records = upsertedRecords,
-                        CommonAttributes = commonAttributes
-                    };
-                    WriteRecordsResponse upsertResponse = await writeClient.WriteRecordsAsync(writeRecordsUpsertRequest);
-                    Console.WriteLine($"WriteRecords Status for upsert with higher version:  {upsertResponse.HttpStatusCode.ToString()}");
-                }
-                catch (RejectedRecordsException e) {
-                    PrintRejectedRecordsException(e);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine("Write records failure:" + e.ToString());
-                }
+                    DatabaseName = Constants.DATABASE_NAME,
+                    TableName = Constants.TABLE_NAME,
+                    Records = upsertedRecords,
+                    CommonAttributes = commonAttributes
+                };
+                WriteRecordsResponse upsertResponse = await writeClient.WriteRecordsAsync(writeRecordsUpsertRequest);
+                Console.WriteLine($"WriteRecords Status for upsert with lower version: {upsertResponse.HttpStatusCode.ToString()}");
             }
+            catch (RejectedRecordsException e)
+            {
+                Console.WriteLine($"WriteRecords Status for upsert with lower version.");
+                PrintRejectedRecordsException(e);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Write records failure:" + e.ToString());
+            }
+
+            // upsert with higher version as new data is generated
+            now = DateTimeOffset.UtcNow;
+            version = now.ToUnixTimeMilliseconds();
+            recordType.GetProperty("Version").SetValue(commonAttributes, version);
+
+            try
+            {
+                var writeRecordsUpsertRequest = new WriteRecordsRequest
+                {
+                    DatabaseName = Constants.DATABASE_NAME,
+                    TableName = Constants.TABLE_NAME,
+                    Records = upsertedRecords,
+                    CommonAttributes = commonAttributes
+                };
+                WriteRecordsResponse upsertResponse = await writeClient.WriteRecordsAsync(writeRecordsUpsertRequest);
+                Console.WriteLine($"WriteRecords Status for upsert with higher version:  {upsertResponse.HttpStatusCode.ToString()}");
+            }
+            catch (RejectedRecordsException e)
+            {
+                PrintRejectedRecordsException(e);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Write records failure:" + e.ToString());
+            }
+        }
 
         private void PrintRejectedRecordsException(RejectedRecordsException e)
         {
             Console.WriteLine("RejectedRecordsException:" + e.ToString());
-            foreach (RejectedRecord rr in e.RejectedRecords) {
+            foreach (RejectedRecord rr in e.RejectedRecords)
+            {
                 Console.WriteLine("RecordIndex " + rr.RecordIndex + " : " + rr.Reason);
                 long? existingVersion = rr.ExistingVersion;
-                if (existingVersion != null) {
+                if (existingVersion != null)
+                {
                     Console.WriteLine("Rejected record existing version: " + existingVersion);
                 }
             }
